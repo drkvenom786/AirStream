@@ -28,7 +28,7 @@
     <!-- Gradient Vignette at the bottom for readability -->
     <View
         android:layout_width="match_parent"
-        android:layout_height="240dp"
+        android:layout_height="320dp"
         android:layout_gravity="bottom"
         android:background="@drawable/gradient_player_bottom" />
 

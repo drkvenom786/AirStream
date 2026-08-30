@@ -13,14 +13,17 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.airstream.R
 import com.github.airstream.api.obj.StreamItem
+import com.github.airstream.constants.PreferenceKeys
 import com.github.airstream.databinding.ItemShortBinding
 import com.github.airstream.extensions.formatShort
 import com.github.airstream.extensions.toID
 import com.github.airstream.helpers.ImageHelper
+import com.github.airstream.helpers.PreferenceHelper
 import com.github.airstream.ui.adapters.callbacks.DiffUtilItemCallback
 import com.github.airstream.ui.extensions.setupSubscriptionButton
 import com.github.airstream.util.TextUtils
@@ -56,6 +59,22 @@ class ShortsAdapter(
             currentStreamItem = item
             val videoId = item.url?.toID().orEmpty()
             val context = binding.root.context
+
+            // Dynamic margin adjustment for pill-shaped navigation bar
+            val isPill = PreferenceHelper.getBoolean(PreferenceKeys.PILL_SHAPED_NAV_BAR, false)
+            val extraBottom = if (isPill) (80 * context.resources.displayMetrics.density).toInt() else 0
+            val metaBaseMargin = (24 * context.resources.displayMetrics.density).toInt()
+            val railBaseMargin = (32 * context.resources.displayMetrics.density).toInt()
+
+            binding.metaContainer.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                bottomMargin = metaBaseMargin + extraBottom
+            }
+            binding.actionRail.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                bottomMargin = railBaseMargin + extraBottom
+            }
+            binding.progressBarBottom.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                bottomMargin = extraBottom
+            }
 
             // Thumbnail
             ImageHelper.loadImage(item.thumbnail, binding.thumbnailImage)
