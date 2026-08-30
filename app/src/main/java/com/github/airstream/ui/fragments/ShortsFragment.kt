@@ -169,6 +169,15 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                             holder?.hideThumbnail()
                         }
                     }
+
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        super.onPlayerError(error)
+                        val pos = currentPlayingPosition
+                        val totalCount = shortsAdapter?.itemCount ?: 0
+                        if (pos + 1 < totalCount && isAdded) {
+                            binding.shortsViewPager.setCurrentItem(pos + 1, true)
+                        }
+                    }
                 })
             }
     }
@@ -326,6 +335,14 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                 applyMediaSource(videoId, streams)
                 exoPlayer?.prepare()
                 exoPlayer?.play()
+            } else if (streams == null && currentPlayingPosition == position && isAdded) {
+                // If stream is unavailable, automatically advance to next short
+                val totalCount = shortsAdapter?.itemCount ?: 0
+                if (position + 1 < totalCount) {
+                    binding.shortsViewPager.setCurrentItem(position + 1, true)
+                } else {
+                    viewModel.loadMoreShorts(requireContext())
+                }
             }
         }
 

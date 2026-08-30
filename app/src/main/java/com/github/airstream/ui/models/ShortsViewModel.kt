@@ -84,9 +84,11 @@ class ShortsViewModel : ViewModel() {
                         val streamInfo = withContext(Dispatchers.IO) {
                             MediaServiceRepository.instance.getStreams(initialId)
                         }
-                        streamsCache[initialId] = streamInfo
-                        val item = streamInfo.toStreamItem(initialId)
-                        allShorts.add(item)
+                        if (hasPlayableStream(streamInfo) && (streamInfo.duration <= 90 || streamInfo.isShort)) {
+                            streamsCache[initialId] = streamInfo
+                            val item = streamInfo.toStreamItem(initialId)
+                            allShorts.add(item)
+                        }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -314,11 +316,14 @@ class ShortsViewModel : ViewModel() {
             val videoId = streamItem.url?.toID() ?: continue
             if (seenVideoIds.contains(videoId)) continue
 
-            // Identify Shorts: either isShort, or duration <= 90s, or title contains #shorts / shorts
-            val isShortVideo = streamItem.isShort ||
-                    (streamItem.duration != null && streamItem.duration in 1..90) ||
-                    (streamItem.title?.contains("shorts", ignoreCase = true) == true) ||
-                    (streamItem.shortDescription?.contains("shorts", ignoreCase = true) == true)
+            val duration = streamItem.duration
+            // Strict short validation: If duration is known and > 90 seconds, reject immediately (it's a long video!)
+            if (duration != null && duration > 90) continue
+
+            // Must be an actual Short (isShort flag, or duration <= 90s, or url contains "/shorts/")
+            val isShortVideo = (streamItem.isShort && (duration == null || duration <= 90)) ||
+                    (duration != null && duration in 1..90) ||
+                    (streamItem.url?.contains("/shorts/", ignoreCase = true) == true)
 
             if (isShortVideo) {
                 seenVideoIds.add(videoId)
@@ -330,18 +335,31 @@ class ShortsViewModel : ViewModel() {
 
     suspend fun getStreamInfo(videoId: String): Streams? {
         val id = videoId.toID()
-        streamsCache[id]?.let { return it }
+        streamsCache[id]?.let {
+            if (hasPlayableStream(it)) return it
+        }
 
         return try {
             val streams = withContext(Dispatchers.IO) {
                 MediaServiceRepository.instance.getStreams(id)
             }
-            streamsCache[id] = streams
-            streams
+            if (hasPlayableStream(streams)) {
+                streamsCache[id] = streams
+                streams
+            } else {
+                null
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null
         }
+    }
+
+    private fun hasPlayableStream(streams: Streams): Boolean {
+        return streams.videoStreams.any { !it.url.isNullOrBlank() } ||
+                (!streams.isLive && streams.serverAbrStreamingUrl != null) ||
+                (streams.dash != null) ||
+                (streams.hls != null)
     }
 
     fun toggleLike(videoId: String): Boolean {

@@ -62,9 +62,9 @@ class ShortsAdapter(
 
             // Dynamic margin adjustment for pill-shaped navigation bar
             val isPill = PreferenceHelper.getBoolean(PreferenceKeys.PILL_SHAPED_NAV_BAR, false)
-            val extraBottom = if (isPill) (80 * context.resources.displayMetrics.density).toInt() else 0
-            val metaBaseMargin = (24 * context.resources.displayMetrics.density).toInt()
-            val railBaseMargin = (32 * context.resources.displayMetrics.density).toInt()
+            val extraBottom = if (isPill) (44 * context.resources.displayMetrics.density).toInt() else 0
+            val metaBaseMargin = (16 * context.resources.displayMetrics.density).toInt()
+            val railBaseMargin = (20 * context.resources.displayMetrics.density).toInt()
 
             binding.metaContainer.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 bottomMargin = metaBaseMargin + extraBottom
@@ -103,7 +103,18 @@ class ShortsAdapter(
                     channelId = channelId,
                     channelName = item.uploaderName.orEmpty(),
                     channelAvatar = item.uploaderAvatar,
-                    channelVerified = item.uploaderVerified ?: false
+                    channelVerified = item.uploaderVerified ?: false,
+                    onIsSubscribedChange = { isSubscribed ->
+                        if (isSubscribed) {
+                            binding.subscribeButton.text = "Subscribed"
+                            binding.subscribeButton.setBackgroundColor(Color.parseColor("#33FFFFFF"))
+                            binding.subscribeButton.setTextColor(Color.WHITE)
+                        } else {
+                            binding.subscribeButton.text = "Subscribe"
+                            binding.subscribeButton.setBackgroundColor(Color.WHITE)
+                            binding.subscribeButton.setTextColor(Color.BLACK)
+                        }
+                    }
                 )
             } else {
                 binding.subscribeButton.isVisible = false
