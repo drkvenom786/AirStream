@@ -76,7 +76,7 @@ class ShortsViewModel : ViewModel() {
                 // Build personalized taste queries from user history & subscriptions
                 buildPersonalizedQueries(context)
 
-                // If initial video is provided, fetch its stream info and make it first
+                // If initial video is provided, fetch its stream info and verify it's a short
                 if (!initialVideoId.isNullOrBlank()) {
                     val initialId = initialVideoId.toID()
                     seenVideoIds.add(initialId)
@@ -94,7 +94,7 @@ class ShortsViewModel : ViewModel() {
                     }
                 }
 
-                // Fetch initial batch of personalized shorts in parallel for instant load
+                // Fetch initial batch of personalized shorts with verified playable stream URLs
                 val fetchedShorts = withContext(Dispatchers.IO) {
                     fetchInitialPersonalizedBatch(context)
                 }
@@ -185,10 +185,9 @@ class ShortsViewModel : ViewModel() {
     }
 
     private suspend fun fetchInitialPersonalizedBatch(context: Context): List<StreamItem> {
-        val result = mutableListOf<StreamItem>()
+        val candidates = mutableListOf<StreamItem>()
         val mediaRepo = MediaServiceRepository.instance
 
-        // Query the first 2 personalized topics in parallel for ultra-fast response
         val queriesToFetch = if (personalizedQueries.isNotEmpty()) {
             personalizedQueries.take(3)
         } else {
@@ -210,20 +209,20 @@ class ShortsViewModel : ViewModel() {
         }
 
         val batches = jobs.awaitAll()
-        batches.forEach { result.addAll(it) }
+        batches.forEach { candidates.addAll(it) }
 
-        // If results are still low, try fallback search
-        if (result.size < 6) {
+        if (candidates.size < 6) {
             try {
                 val searchResult = mediaRepo.getSearchResults("#shorts", "all")
                 nextPageToken = searchResult.nextpage
-                result.addAll(filterAndCollectShorts(searchResult.items))
+                candidates.addAll(filterAndCollectShorts(searchResult.items))
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
-        return result
+        // Pre-validate that only shorts with valid streaming links are added
+        return validateAndCollectPlayableShorts(candidates)
     }
 
     fun loadMoreShorts(context: Context) {
@@ -251,48 +250,57 @@ class ShortsViewModel : ViewModel() {
     }
 
     private suspend fun fetchShortsBatch(context: Context): List<StreamItem> {
-        val result = mutableListOf<StreamItem>()
+        val candidates = mutableListOf<StreamItem>()
         val mediaRepo = MediaServiceRepository.instance
 
-        // Strategy 1: If nextPageToken is available, fetch next page of current search
         if (!nextPageToken.isNullOrBlank()) {
             val query = getNextQuery()
             try {
                 val searchResult = mediaRepo.getSearchResultsNextPage(query, "all", nextPageToken!!)
                 nextPageToken = searchResult.nextpage
                 val items = filterAndCollectShorts(searchResult.items)
-                result.addAll(items)
+                candidates.addAll(items)
             } catch (e: Exception) {
                 nextPageToken = null
             }
         }
 
-        // Strategy 2: Advance to next personalized recommendation topic
-        if (result.size < 6) {
+        if (candidates.size < 6) {
             val query = getNextQuery()
             try {
                 val searchResult = mediaRepo.getSearchResults(query, "all")
                 nextPageToken = searchResult.nextpage
                 val items = filterAndCollectShorts(searchResult.items)
-                result.addAll(items)
+                candidates.addAll(items)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
-        // Strategy 3: Try regional live trending as fallback
-        if (result.size < 4) {
+        if (candidates.size < 4) {
             try {
                 val region = PreferenceHelper.getTrendingRegion(context)
                 val trending = mediaRepo.getTrending(region, com.github.airstream.api.TrendingCategory.LIVE)
                 val shortsFromTrending = filterAndCollectShorts(trending)
-                result.addAll(shortsFromTrending)
+                candidates.addAll(shortsFromTrending)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
-        return result
+        return validateAndCollectPlayableShorts(candidates)
+    }
+
+    private suspend fun validateAndCollectPlayableShorts(candidates: List<StreamItem>): List<StreamItem> {
+        val validItems = mutableListOf<StreamItem>()
+        for (item in candidates) {
+            val videoId = item.url?.toID() ?: continue
+            val streams = getStreamInfo(videoId)
+            if (streams != null && hasPlayableStream(streams)) {
+                validItems.add(item)
+            }
+        }
+        return validItems
     }
 
     private fun getNextQuery(): String {

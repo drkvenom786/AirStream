@@ -172,11 +172,8 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
 
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                         super.onPlayerError(error)
-                        val pos = currentPlayingPosition
-                        val totalCount = shortsAdapter?.itemCount ?: 0
-                        if (pos + 1 < totalCount && isAdded) {
-                            binding.shortsViewPager.setCurrentItem(pos + 1, true)
-                        }
+                        val holder = getCurrentViewHolder()
+                        holder?.setBuffering(false)
                     }
                 })
             }
@@ -320,7 +317,7 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
         if (PlayerHelper.watchHistoryEnabled) {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    val historyItem = item.toWatchHistoryItem(videoId)
+                    val historyItem = item.toWatchHistoryItem(videoId).copy(isShort = true)
                     DatabaseHelper.addToWatchHistory(historyItem)
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -335,14 +332,6 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                 applyMediaSource(videoId, streams)
                 exoPlayer?.prepare()
                 exoPlayer?.play()
-            } else if (streams == null && currentPlayingPosition == position && isAdded) {
-                // If stream is unavailable, automatically advance to next short
-                val totalCount = shortsAdapter?.itemCount ?: 0
-                if (position + 1 < totalCount) {
-                    binding.shortsViewPager.setCurrentItem(position + 1, true)
-                } else {
-                    viewModel.loadMoreShorts(requireContext())
-                }
             }
         }
 
@@ -360,28 +349,8 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
         val context = requireContext()
         val dataSourceFactory = DefaultDataSource.Factory(context)
 
-        // Find best video stream (720p, 1080p, 480p)
-        val videoStream = streams.videoStreams.firstOrNull {
-            !it.url.isNullOrBlank() && it.url?.startsWith("sabr://") != true &&
-                    (it.quality == "720p" || it.quality == "1080p" || it.quality == "480p" || it.format == "MPEG_4")
-        } ?: streams.videoStreams.firstOrNull { !it.url.isNullOrBlank() && it.url?.startsWith("sabr://") != true }
-
-        // Find best audio stream (M4A or Opus)
-        val audioStream = streams.audioStreams.firstOrNull {
-            !it.url.isNullOrBlank() && it.url?.startsWith("sabr://") != true
-        }
-
         when {
-            // 1. Merged Progressive Video + Audio for instant start with full sound
-            videoStream != null && audioStream != null && !videoStream.url.isNullOrBlank() && !audioStream.url.isNullOrBlank() -> {
-                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(videoStream.url!!.toUri()))
-                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(audioStream.url!!.toUri()))
-                val mergedSource = MergingMediaSource(videoSource, audioSource)
-                player.setMediaSource(mergedSource)
-            }
-            // 2. SABR adaptive streaming (includes both video & audio)
+            // 1. SABR adaptive streaming (includes synchronized video and audio via Ustreamer)
             !streams.isLive && streams.serverAbrStreamingUrl != null && streams.videoPlaybackUstreamerConfig != null -> {
                 val sabrMediaSourceFactory = SabrMediaSource.Factory(
                     SabrManifest(videoId, streams)
@@ -393,7 +362,7 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                 val mediaSource = sabrMediaSourceFactory.createMediaSource(mediaItem)
                 player.setMediaSource(mediaSource)
             }
-            // 3. DASH source (includes video + audio AdaptationSets)
+            // 2. DASH source (generates standard MPD manifest with video and audio tracks)
             streams.videoStreams.any { it.url?.startsWith("sabr://") != true } -> {
                 val dashUri = if (streams.isLive && streams.dash != null) {
                     ProxyHelper.rewriteUrlUsingProxyPreference(streams.dash).toUri()
@@ -409,7 +378,7 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                     .build()
                 player.setMediaItem(mediaItem)
             }
-            // 4. HLS
+            // 3. HLS
             streams.hls != null -> {
                 val hlsMediaSourceFactory = HlsMediaSource.Factory(dataSourceFactory)
                     .setPlaylistParserFactory(YoutubeHlsPlaylistParser.Factory())
@@ -419,11 +388,6 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                     .build()
                 val mediaSource = hlsMediaSourceFactory.createMediaSource(mediaItem)
                 player.setMediaSource(mediaSource)
-            }
-            // 5. Fallback progressive stream
-            videoStream != null && !videoStream.url.isNullOrBlank() -> {
-                val mediaItem = MediaItem.fromUri(videoStream.url!!.toUri())
-                player.setMediaItem(mediaItem)
             }
             else -> Unit
         }

@@ -205,6 +205,7 @@ class HomeViewModel : ViewModel() {
 
     private suspend fun loadWatchingFromDB(): List<StreamItem> {
         val videos = DatabaseHelper.getWatchHistoryPage(1, 20)
+            .filter { !it.isShort && (it.duration == null || it.duration > 90) }
 
         return DatabaseHelper
             .filterUnwatched(videos.map { it.toStreamItem() })

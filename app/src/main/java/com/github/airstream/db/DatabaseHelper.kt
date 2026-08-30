@@ -78,6 +78,7 @@ object DatabaseHelper {
 
     suspend fun filterUnwatched(streams: List<StreamItem>): List<StreamItem> {
         return streams.filter {
+            if (it.isShort || (it.duration != null && it.duration in 1..90)) return@filter false
             !isVideoWatched(it.url.orEmpty().toID(), it.duration ?: 0)
         }
     }
