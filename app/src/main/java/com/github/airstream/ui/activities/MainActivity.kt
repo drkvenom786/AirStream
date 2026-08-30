@@ -258,6 +258,10 @@ class MainActivity : AbstractPlayerHostActivity() {
             it.setStartDestination(startFragmentId)
         }
 
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            binding.appBarLayout.isVisible = destination.id != R.id.shortsFragment
+        }
+
         // Prevent duplicate entries into backstack, if selected item and current
         // visible fragment is different, then navigate to selected item.
         binding.bottomNav.setOnItemReselectedListener {
@@ -392,9 +396,8 @@ class MainActivity : AbstractPlayerHostActivity() {
         this.searchItem = searchItem
         searchView = searchItem.actionView as SearchView
 
-        // automatically set a different search icon in the playlists
-                navController.addOnDestinationChangedListener { _, destination, _ ->
-            
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            binding.appBarLayout.isVisible = destination.id != R.id.shortsFragment
             currentSearchType = when (destination.id) {
                 R.id.downloadsFragment -> SearchType.DOWNLOADS
                 R.id.playlistFragment -> SearchType.PLAYLIST
