@@ -89,6 +89,9 @@ object DatabaseHelper {
         watchHistoryItem: WatchHistoryItem,
         unfinished: Boolean = true
     ): Boolean {
+        if (unfinished && (watchHistoryItem.isShort || (watchHistoryItem.duration != null && watchHistoryItem.duration in 1..90))) {
+            return false
+        }
         return unfinished xor isVideoWatched(watchHistoryItem.videoId, watchHistoryItem.duration ?: 0)
     }
 

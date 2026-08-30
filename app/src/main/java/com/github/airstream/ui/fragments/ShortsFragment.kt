@@ -29,6 +29,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
@@ -340,19 +341,30 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
     private fun applyMediaSource(videoId: String, streams: Streams) {
         val player = exoPlayer ?: return
         val context = requireContext()
+        val dataSourceFactory = DefaultDataSource.Factory(context)
 
-        // 1. Direct Progressive Stream for instant zero-latency start
-        val progressiveStream = streams.videoStreams.firstOrNull {
-            !it.url.isNullOrBlank() && (it.quality == "720p" || it.quality == "480p" || it.format == "MPEG_4")
-        } ?: streams.videoStreams.firstOrNull { !it.url.isNullOrBlank() }
+        // Find best video stream (720p, 1080p, 480p)
+        val videoStream = streams.videoStreams.firstOrNull {
+            !it.url.isNullOrBlank() && it.url?.startsWith("sabr://") != true &&
+                    (it.quality == "720p" || it.quality == "1080p" || it.quality == "480p" || it.format == "MPEG_4")
+        } ?: streams.videoStreams.firstOrNull { !it.url.isNullOrBlank() && it.url?.startsWith("sabr://") != true }
+
+        // Find best audio stream (M4A or Opus)
+        val audioStream = streams.audioStreams.firstOrNull {
+            !it.url.isNullOrBlank() && it.url?.startsWith("sabr://") != true
+        }
 
         when {
-            // High-speed progressive MP4
-            progressiveStream != null && !progressiveStream.url.isNullOrBlank() -> {
-                val mediaItem = MediaItem.fromUri(progressiveStream.url!!.toUri())
-                player.setMediaItem(mediaItem)
+            // 1. Merged Progressive Video + Audio for instant start with full sound
+            videoStream != null && audioStream != null && !videoStream.url.isNullOrBlank() && !audioStream.url.isNullOrBlank() -> {
+                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(videoStream.url!!.toUri()))
+                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(audioStream.url!!.toUri()))
+                val mergedSource = MergingMediaSource(videoSource, audioSource)
+                player.setMediaSource(mergedSource)
             }
-            // SABR adaptive streaming
+            // 2. SABR adaptive streaming (includes both video & audio)
             !streams.isLive && streams.serverAbrStreamingUrl != null && streams.videoPlaybackUstreamerConfig != null -> {
                 val sabrMediaSourceFactory = SabrMediaSource.Factory(
                     SabrManifest(videoId, streams)
@@ -364,7 +376,7 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                 val mediaSource = sabrMediaSourceFactory.createMediaSource(mediaItem)
                 player.setMediaSource(mediaSource)
             }
-            // DASH source
+            // 3. DASH source (includes video + audio AdaptationSets)
             streams.videoStreams.any { it.url?.startsWith("sabr://") != true } -> {
                 val dashUri = if (streams.isLive && streams.dash != null) {
                     ProxyHelper.rewriteUrlUsingProxyPreference(streams.dash).toUri()
@@ -380,9 +392,9 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                     .build()
                 player.setMediaItem(mediaItem)
             }
-            // HLS
+            // 4. HLS
             streams.hls != null -> {
-                val hlsMediaSourceFactory = HlsMediaSource.Factory(DefaultDataSource.Factory(context))
+                val hlsMediaSourceFactory = HlsMediaSource.Factory(dataSourceFactory)
                     .setPlaylistParserFactory(YoutubeHlsPlaylistParser.Factory())
                 val mediaItem = MediaItem.Builder()
                     .setUri(ProxyHelper.rewriteUrlUsingProxyPreference(streams.hls).toUri())
@@ -390,6 +402,11 @@ class ShortsFragment : Fragment(R.layout.fragment_shorts) {
                     .build()
                 val mediaSource = hlsMediaSourceFactory.createMediaSource(mediaItem)
                 player.setMediaSource(mediaSource)
+            }
+            // 5. Fallback progressive stream
+            videoStream != null && !videoStream.url.isNullOrBlank() -> {
+                val mediaItem = MediaItem.fromUri(videoStream.url!!.toUri())
+                player.setMediaItem(mediaItem)
             }
             else -> Unit
         }
